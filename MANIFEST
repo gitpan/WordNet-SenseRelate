@@ -1,0 +1,8 @@
+Changes
+INSTALL
+Makefile.PL
+MANIFEST
+README
+t/WordNet-SenseRelate.t
+lib/WordNet/SenseRelate.pm
+utils/wsd.pl

@@ -1,0 +1,3 @@
+An/DT airplane/NN flies/VBZ high/JJ and/CC fast/RB 
+The/DT truck/NN travels/VBZ treacherously/RB 
+Submarines/NNS travel/VBP slowly/RB and/CC silently/RB 

@@ -1,0 +1,139 @@
+# $Id: README.pod,v 1.6 2004/12/23 17:46:03 jmichelizzi Exp $
+
+=head1 NAME
+
+WordNet-SenseRelate version 0.01
+
+=head1 OVERVIEW
+
+Selecting the correct sense of a word in a context is called word sense
+disambiguation (WSD).  The correct sense is selected from a set of
+predefined senses for that word (i.e., from a dictionary).
+
+=head1 SYNOPSIS
+
+    use WordNet::SenseRelate;
+    use WordNet::QueryData;
+
+    my $qd = WordNet::QueryData->new;
+    
+    my %options = (wordnet => $qd,
+                   measure => 'WordNet::Similarity::lesk'
+                   );
+
+    my $wsd = WordNet::SenseRelate->new (%options);
+
+    my @words = qw/when in the course of human events/;
+
+    my @res = $wsd->disambiguate (window => 2,
+                                  tagged => 0,
+                                  scheme => 'normal',
+                                  context => [@words],
+                                  );
+                                    
+    print join (' ', @res), "\n";
+   
+
+=head1 DESCRIPTION
+
+Words can have multiple meanings or senses.  For example, the word
+I<glass> in WordNet [1] has seven senses as a noun and five senses
+as a verb.  Glass can mean a clear solid, a container
+for drinking, the quantity a drinking container will hold, etc.
+WSD is the process of selecting the correct sense of a word when
+that word occurs in a specific context.  For example, in the sentence,
+"the window is made of glass", the correct sense of glass is the
+first sense, a clear solid.
+
+WordNet::SenseRelate implements an extension of the algorithm described
+by Pedersen, Banerjee, and Patwardhan [2].  This implementation is similar
+to the original SenseRelate package.  The original SenseRelate was
+intended for a "lexical sample" situation where the goal is to
+disambiguate only one word (specified by markup tags) in a given context.
+
+The goal of WordNet::SenseRelate is to disambiguate every word
+in a context or document.
+
+The output will be in the form word#part_of_speech#sense_number.  The
+part of speech will be one of 'n' for noun, 'v' for verb, 'a' for
+adjective, or 'r' for adverb.  Words from other parts of speech are not
+disambiguated and are not found in WordNet.  The sense number will be a
+WordNet sense number.  WordNet sense numbers are assigned by frequency,
+so sense 1 of a word is more common than sense 2, etc.
+
+Sometimes when a word is disambiguated, a "different" but synonymous word
+will be found in the output.  This is not a bug, but is a consequence
+of how WordNet works.  The word sense returned will always be the first
+word sense in a synset (synonym set) to which the original word belongs.
+
+=head2 Algorithm
+
+  for each word w in input
+    disambiguate-single-word (w)
+
+  disambiguate-single-word
+    for each sense s_ti of target word t
+        let socre_i = 0
+        for each word w_j in context window
+            next if j = t
+            for each sense s_jk of w_j
+                temp-score_k = relatedness (s_ti, s_jk)
+            best-score = max temp-score
+            if best-score > threshold
+                score_i = score_i + best-score
+    return i s.t. score_i > score_j for all j in {s_t0, ..., s_tN}
+
+=head2 The Context Window
+
+The size of the context window can be specified by the user.  A context
+window of size 3 means that the 3 words to the left and the 3 words to
+the right of the target word will be in the context window; however,
+the algorithm will expand the context window so that the 3 words to the
+left will be words known to WordNet.  For example, if the word 'the',
+occurs in the context window to the left of the target word, then the
+window will be expanded by one word to the left.
+
+Note that the context window will only include words in the same sentence
+as the target word.  If, for example, the target word is the first word
+in the sentence, then there will be no words to left of the target word
+in the context window.
+
+=head1 SEE ALSO
+
+WordNet::SenseRelate(3) wsd.pl(1)
+
+=head1 AUTHORS
+
+Jason Michelizzi <jmichelizzi at users.sourceforge.net>
+
+Ted Pedersen <tpederse at d.umn.edu>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2004 by Jason Michelizzi and Ted Pedersen
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+=head1 REFERENCES
+
+=over
+
+=item 1.
+
+Christiane Fellbaum. 1998. WordNet: an Electronic Lexical Database.  MIT
+Press.
+
+=item 2.
+
+Ted Pedersen, Satanjeev Banerjee, and Siddharth Patwardhan. 2003.
+Maximizing Semantic Relatedness to Perform Word Sense Disambiguation.
+
+=back
