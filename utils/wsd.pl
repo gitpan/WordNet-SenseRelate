@@ -1,6 +1,6 @@
 #!/usr/local/bin/perl
 
-# $Id: wsd.pl,v 1.14 2004/12/23 18:21:04 jmichelizzi Exp $
+# $Id: wsd.pl,v 1.16 2005/01/17 16:05:58 jmichelizzi Exp $
 
 use strict;
 use warnings;
@@ -25,6 +25,7 @@ our $version;
 our $scheme = 'normal';
 our $boundary;
 our $outfile;
+our $forcepos;
 
 my $ok = GetOptions ('type|measure=s' => \$measure,
 		   'config=s' => \$mconfig,
@@ -37,6 +38,7 @@ my $ok = GetOptions ('type|measure=s' => \$measure,
 		   'contextScore=f' => \$contextScore,
 		   'scheme=s' => \$scheme,
 		   'boundary!' => \$boundary,
+		   forcepos => \$forcepos,
 		   silent => \$silent,
 		   'trace=i' => \$trace,
 		   help => \$help,
@@ -87,6 +89,7 @@ unless ($silent) {
     print "    stoplist      : ", ($stoplist ? $stoplist : '(none)') , "\n";
     print "    trace         : ", ($trace ? $trace : "no"), "\n";
     print "    boundary      : ", ($boundary ? "detect" : "assume"), "\n";
+    print "    forcepos      : ", ($forcepos ? "yes" : "no"), "\n";
 }
 
 local $| = 1;
@@ -105,6 +108,7 @@ $options{trace} = $trace if defined $trace;
 $options{pairScore} = $pairScore if defined $pairScore;
 $options{contextScore} = $contextScore if defined $contextScore;
 $options{outfile} = $outfile if defined $outfile;
+$options{forcepos} = $forcepos if defined $forcepos;
 
 my $sr = WordNet::SenseRelate->new (%options);
 
@@ -242,6 +246,7 @@ sub showUsage
 	print "\t--trace INT          turn tracing on; higher value results in more\n";
 	print "\t                     traces\n";
 	print "\t--silent             run silently; shows only final output\n";
+        print "\t--forcepos           turn part of speech coercion on\n";
 	print "\t--help               show this help message\n";
 	print "\t--version            show version information\n";
     }
@@ -255,7 +260,7 @@ wsd.pl - disambiguate words
 
 =head1 SYNOPSIS
 
-wsd.pl --context FILE [--scheme SCHEME] [--type MEASURE] [--config FILE] [--compounds FILE] [--stoplist FILE] [--window INT] [--contextScore NUM] [--pairScore NUM] [--outfile FILE] [--boundary] [--trace INT] [--silent] | --help | --version
+wsd.pl --context FILE [--scheme SCHEME] [--type MEASURE] [--config FILE] [--compounds FILE] [--stoplist FILE] [--window INT] [--contextScore NUM] [--pairScore NUM] [--outfile FILE] [--boundary] [--trace INT] [--silent] [--forcepos] | --help | --version
 
 =head1 DESCRIPTION
 
@@ -364,6 +369,13 @@ Display traces from the semantic relatedness module.
 
 Silent mode.  No information about progress, etc. is printed.  Just the
 final output.
+
+=item --forcepos
+
+Turn part of speech coercion on.  POS coercion forces other words in the
+context window to be of the same part of speech as the target word.  This
+may be useful when using a measure of semantic similarity that only works
+with noun-noun and verb-verb pairs.
 
 =back
 

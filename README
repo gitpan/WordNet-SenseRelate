@@ -1,5 +1,5 @@
 NAME
-    WordNet-SenseRelate version 0.01
+    WordNet-SenseRelate version 0.02
 
 OVERVIEW
     Selecting the correct sense of a word in a context is called word sense
@@ -47,19 +47,6 @@ DESCRIPTION
     The goal of WordNet::SenseRelate is to disambiguate every word in a
     context or document.
 
-    The output will be in the form word#part_of_speech#sense_number. The
-    part of speech will be one of 'n' for noun, 'v' for verb, 'a' for
-    adjective, or 'r' for adverb. Words from other parts of speech are not
-    disambiguated and are not found in WordNet. The sense number will be a
-    WordNet sense number. WordNet sense numbers are assigned by frequency,
-    so sense 1 of a word is more common than sense 2, etc.
-
-    Sometimes when a word is disambiguated, a "different" but synonymous
-    word will be found in the output. This is not a bug, but is a
-    consequence of how WordNet works. The word sense returned will always be
-    the first word sense in a synset (synonym set) to which the original
-    word belongs.
-
   Algorithm
       for each word w in input
         disambiguate-single-word (w)
@@ -80,15 +67,102 @@ DESCRIPTION
     The size of the context window can be specified by the user. A context
     window of size 3 means that the 3 words to the left and the 3 words to
     the right of the target word will be in the context window; however, the
-    algorithm will expand the context window so that the 3 words to the left
-    will be words known to WordNet. For example, if the word 'the', occurs
-    in the context window to the left of the target word, then the window
-    will be expanded by one word to the left.
+    algorithm will expand the context window so that the 3 words on each
+    side will be words known to WordNet. For example, if the word 'the',
+    occurs in the context window to the left of the target word, then the
+    window will be expanded by one word to the left.
 
     Note that the context window will only include words in the same
     sentence as the target word. If, for example, the target word is the
     first word in the sentence, then there will be no words to left of the
     target word in the context window.
+
+  Part of Speech Coercion
+    Certain measures of semantic similarity only work on noun-noun or
+    verb-verb pairs; therefore, the usefulness of these measures for WSD is
+    somewhat limited. As a way of coping with this problem,
+    WordNet::SenseRelate provides an option to "coerce" words in the context
+    window to be of the same part of speech as the target word.
+
+    When POS coercion is in effect, if the target word is a noun, then
+    WordNet::SenseRelate will attempt to convert non-nouns in the context
+    window to noun forms of the same word. For example, if the target word
+    is a noun and the verb *love* occurs in the window, the module might
+    convert that word to the noun *love*.
+
+    WordNet::SenseRelate first uses the validForms method from
+    WordNet::QueryData to find any valid forms of the word being coerced
+    that are of the desired part of speech. In the case of part of speech
+    tagged text, the POS tags are discarded. If validForms did not return
+    any forms of the desired part of speech, then the derived forms relation
+    in WordNet is used to find possible forms of the word. If neither of
+    these methods returned usable forms, then no further attempt is made to
+    coerce the word to be the desired part of speech.
+
+  Tracing/Debugging
+    Several different levels of trace output are available. The trace level
+    can be specified as a command-line option to wsd.pl or as a parameter to
+    the WordNet::SenseRelate module.
+
+   Trace Levels
+    1   Show the context window for each pass through the algorithm.
+
+    2   Display winning score for each pass.
+
+    4   Display the scores for all senses for each pass (overrides level 2).
+
+    8   Display traces from the semantic relatedness module.
+
+    Different trace levels can be combined to achieve the desired behavior.
+    For example, by specifying a trace level of 3, both level 1 and level 2
+    traces are generated (i.e., the context window will be shown along with
+    the winning score for each pass).
+
+  Using wsd.pl
+    The wsd.pl script provides an easy method of performing disambiguation
+    from the command line. The text to be disambiguated is read from a file
+    provided by the user on the command line.
+
+   Output
+    The output of wsd.pl is simply the disambiguated words. The output will
+    be in the form word#part_of_speech#sense_number. The part of speech will
+    be one of 'n' for noun, 'v' for verb, 'a' for adjective, or 'r' for
+    adverb. Words from other parts of speech are not disambiguated and are
+    not found in WordNet. The sense number will be a WordNet sense number.
+    WordNet sense numbers are assigned by frequency, so sense 1 of a word is
+    more common than sense 2, etc.
+
+    Sometimes when a word is disambiguated, a "different" but synonymous
+    word will be found in the output. This is not a bug but is a consequence
+    of how WordNet works. The word sense returned will always be the first
+    word sense in a synset (synonym set) to which the original word belongs.
+
+   Usage
+    wsd.pl --context FILE [--scheme SCHEME] [--type MEASURE] [--config FILE]
+    [--compounds FILE] [--stoplist FILE] [--window INT] [--contextScore NUM]
+    [--pairScore NUM] [--outfile FILE] [--boundary] [--trace INT] [--silent]
+    | --help | --version
+
+   Usage Examples
+    1.  wsd.pl --context input.txt
+
+    2.  wsd.pl --trace 3 --context input.txt
+
+    3.  wsd.pl --trace 3 --context input.txt --window 4
+
+  Using the Disambiguation Module
+    The WordNet::SenseRelate Perl module can be used in other Perl programs
+    to perform word sense disambiguation.
+
+   Example
+      use WordNet::SenseRelate;
+      use WordNet::QueryData;
+      my $qd = WordNet::QueryData->new;
+      my $wsd = WordNet::SenseRelate->new (wordnet => $qd,
+                                           measure => 'WordNet::Similarity::lesk');
+      my @words = qw/this is a test/;
+      my @results = $wsd->disambiguate (context => [@words]);
+      print join (' ', @results), "\n";
 
 SEE ALSO
     WordNet::SenseRelate(3) wsd.pl(1)

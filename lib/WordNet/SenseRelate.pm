@@ -1,6 +1,6 @@
 package WordNet::SenseRelate;
 
-# $Id: SenseRelate.pm,v 1.14 2004/12/23 18:21:07 jmichelizzi Exp $
+# $Id: SenseRelate.pm,v 1.17 2005/01/17 16:07:37 jmichelizzi Exp $
 
 =head1 NAME
 
@@ -14,7 +14,6 @@ WordNet::SenseRelate - perform Word Sense Disambiguation
   my $wsd = WordNet::SenseRelate->new (wordnet => $qd,
                                        measure => 'WordNet::Similarity::lesk');
   my @results = $wsd->disambiguate ();
- 
 
 =head1 DESCRIPTION
 
@@ -51,20 +50,72 @@ use Carp;
 
 our @ISA = ();
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 my %wordnet;
 my %compounds;
-my %relatednessMeasure;
+my %simMeasure; # the similarity/relatedness measure
 my %stoplist;
 my %pairScore;
 my %contextScore;
 my %trace;
 my %outfile;
+my %forcepos;
 
 # signifies closed class words
 use constant {CLOSED => 'c',
 	      NOINFO => 'f'};
+
+# Penn tagset
+my %wnTag = (
+    JJ => 'a',
+    JJR => 'a',
+    JJS => 'a',
+    CD => 'a',
+    RB => 'r',
+    RBR => 'r',
+    RBS => 'r',
+    RP => 'r',
+    WRB => CLOSED,
+    CC => CLOSED,
+    IN => CLOSED,
+    DT => CLOSED,
+    PDT => CLOSED,
+    CC => CLOSED,
+    'PRP$' => CLOSED,
+    PRP => CLOSED,
+    WDT => CLOSED,
+    'WP$' => CLOSED,
+    NN => 'n',
+    NNS => 'n',
+    NNP => 'n',
+    NNPS => 'n',
+    PRP => CLOSED,
+    WP => CLOSED,
+    EX => CLOSED,
+    VBP => 'v',
+    VB => 'v',
+    VBD => 'v',
+    VBG => 'v',
+    VBN => 'v',
+    VBZ => 'v',
+    VBP => 'v',
+    MD => 'v',
+    TO => CLOSED,
+    POS => undef,
+    UH => CLOSED,
+    '.' => undef,
+    ':' => undef,
+    ',' => undef,
+    _ => undef,
+    '$' => undef,
+    '(' => undef,
+    ')' => undef,
+    '"' => undef,
+    FW => NOINFO,
+    SYM => undef,
+    LS => undef,
+    );
 
 
 
@@ -84,6 +135,7 @@ Parameters:
   pairScore    => INTEGER   : minimum pairwise score (default: 0)
   contextScore => INTEGER   : minimum overall score (default: 0)
   trace        => INTEGER   : generate traces (default: 0)
+  forcepos     => INTEGER   : do part-of-speech coercion (default: 0)
 
 Returns:
 
@@ -138,6 +190,7 @@ sub new
     my $contextScore = 0;
     my $trace;
     my $outfile;
+    my $forcepos;
 
     while (my ($key, $val) = each %args) {
 	if ($key eq 'wordnet') {
@@ -167,6 +220,9 @@ sub new
 	}
 	elsif ($key eq 'outfile') {
 	    $outfile = $val;
+	}
+	elsif ($key eq 'forcepos') {
+	    $forcepos = $val;
 	}
 	else {
 	    croak "Unknown parameter type '$key'";
@@ -198,24 +254,24 @@ sub new
 
     # construct the relatedness object
     if (defined $measure_config) {
-	$relatednessMeasure{$self} = $measure->new ($qd, $measure_config);
+	$simMeasure{$self} = $measure->new ($qd, $measure_config);
     }
     else {
-	$relatednessMeasure{$self} = $measure->new ($qd);
+	$simMeasure{$self} = $measure->new ($qd);
     }
 
     # check for errors
-    my ($errCode, $errStr) = $self->relatednessMeasure->getError;
+    my ($errCode, $errStr) = $simMeasure{$self}->getError;
     if ($errCode) {
 	croak $errStr;
     }
 
     # turn on traces in the relatedness measure if required
     if ($trace{$self}->{level} & 8) {
-	$relatednessMeasure{$self}->{trace} = 1;
+	$simMeasure{$self}->{trace} = 1;
     }
     else {
-	$relatednessMeasure{$self}->{trace} = 0;
+	$simMeasure{$self}->{trace} = 0;
     }
 
 
@@ -234,6 +290,14 @@ sub new
     if ($outfile and -e $outfile) {
 	unlink $outfile;
     }
+
+    if (defined $forcepos) {
+	$forcepos{$self} = $forcepos;
+    }
+    else {
+	$forcepos{$self} = 0;
+    }
+
     return $self;
 }
 
@@ -243,25 +307,21 @@ sub DESTROY
 {
     my $self = shift;
     delete $wordnet{$self};
-    delete $relatednessMeasure{$self};
+    delete $simMeasure{$self};
     delete $compounds{$self};
     delete $stoplist{$self};
     delete $pairScore{$self};
     delete $contextScore{$self};
     delete $trace{$self};
     delete $outfile{$self};
+    delete $forcepos{$self};
+    1;
 }
 
 sub wordnet : lvalue
 {
     my $self = shift;
     $wordnet{$self};
-}
-
-sub relatednessMeasure : lvalue
-{
-    my $self = shift;
-    $relatednessMeasure{$self};
 }
 
 =item B<disambiguate>
@@ -316,33 +376,7 @@ sub disambiguate
 	}
     }
 
-    # compoundify the words (if we loaded a compounds file)
-    if ($self->compounds ('#do#')) {
-	@context = $self->_compoundify ($tagged, @context);
-    }
-
-    my @newcontext;
-    # do stoplisting
-    if ($stoplist{$self}) {
-	foreach my $word (@context) {
-	    if ($self->isStop ($word)) {
-		push @newcontext, $word."#o";
-	    }
-	    else {
-		push @newcontext, $word;
-	    }
-	}
-    }
-    else {
-	@newcontext = @context;
-    }
-
-    # convert POS tags, if we have tagged text
-    if ($tagged) {
-	foreach my $wpos (@newcontext) {
-	    $wpos = $self->convertTag ($wpos);
-	}
-    }
+    my @newcontext = $self->_initializeContext ($tagged, @context);
 
     my @results;
     if ($scheme eq 'sense1') {
@@ -374,36 +408,53 @@ sub disambiguate
     return @rval;
 }
 
+sub _initializeContext
+{
+    my $self = shift;
+    my $tagged = shift;
+    my @context = @_;
+
+    # compoundify the words (if we loaded a compounds file)
+    if ($self->compounds ('#do#')) {
+	@context = $self->_compoundify ($tagged, @context);
+    }
+
+    my @newcontext;
+    # do stoplisting
+    if ($stoplist{$self}) {
+	foreach my $word (@context) {
+	    if ($self->isStop ($word)) {
+		push @newcontext, $word."#o";
+	    }
+	    else {
+		push @newcontext, $word;
+	    }
+	}
+    }
+    else {
+	@newcontext = @context;
+    }
+
+    # convert POS tags, if we have tagged text
+    if ($tagged) {
+	foreach my $wpos (@newcontext) {
+	    $wpos = $self->convertTag ($wpos);
+	}
+    }
+
+    return @newcontext;
+}
+
 sub doNormal {
     my $self = shift;
     my $pairScore = shift;
     my $contextScore = shift;
     my $window = shift;
     my @context = @_;
-    my $measure = $self->relatednessMeasure;
 
     # get all the senses for each word
-    my @senses;
-    for my $i (0..$#context) {
-	# first get all forms for each POS
-	if ($context[$i] =~ /\#o/) {
-	    $senses[$i] = undef;
-	}
-	else {
-	    my @forms = $self->wordnet->validForms ($context[$i]);
+    my @senses = $self->_getSenses (@context);
 
-	    if (scalar @forms == 0) {
-		$senses[$i] = undef;
-	    }
-	    else {
-		# now get all the senses for each form
-		foreach my $form (@forms) {
-		    my @temps = $self->wordnet->querySense ($form);
-		    push @{$senses[$i]}, @temps;
-		}
-	    }
-	}
-    }
 
     # disambiguate
     my @results;
@@ -418,6 +469,7 @@ sub doNormal {
 	    $results[$targetIdx] = $context[$targetIdx];
 	    next;
 	}
+
 
 	# figure out which words are in the window
 	my $lower = $targetIdx - $window;
@@ -465,91 +517,18 @@ sub doNormal {
 	    $trace{$self}->{string} .= "\n";
 	}
 
-	my @traces;
 
-	# for each sense of the target word ...
-	for my $i (0..$#{$senses[$targetIdx]}) {
-	    unless (ref $senses[$targetIdx] and  defined $senses[$targetIdx][$i]) {
-		$target_scores[$i] = -1;
-		next;
-	    }
-	    my @tempScores;
-	    
-
-	    # for each (context) word in the window around the target word
-	    for my $contextIdx ($lower..$upper) {
-		next if $contextIdx == $targetIdx;
-		next unless ref $senses[$i];
-
-		# for each sense of the context word in the window
-		for my $k (0..$#{$senses[$i]}) {
-		    unless (defined $senses[$contextIdx][$k]) {
-			$tempScores[$k] = -1;
-			next;
-		    }
-		    
-		    $tempScores[$k] =
-			$measure->getRelatedness ($senses[$targetIdx][$i],
-						  $senses[$contextIdx][$k]);
-		    
-		    if ($trace{$self}->{level} & 8) {
-			push @traces, $measure->getTraceString ();
-		    }
-		    # clear errors in Similarity object
-		    $measure->getError () unless defined $tempScores[$k];
-		}
-		my $best = -2;
-		foreach my $temp (@tempScores) {
-		    next unless defined $temp;
-		    $best = $temp if $temp > $best;
-		}
-
-		if ($best > $pairScore{$self}) {
-		    $target_scores[$i] += $best;
-		}
-	    }
+	my $result;
+	if ($forcepos{$self}) {
+	    $result = $self->_forcedPosDisambig ($lower, $targetIdx, $upper,
+						 \@senses, \@context);
 	}
-
-	# find the best score for this sense of the target word
-
-	# first, do a bit of tracing
-	if (ref $trace{$self} and ($trace{$self}->{level} & 4)) {
-	    $trace{$self}->{string} .= "  Scores for $context[$targetIdx]\n";
+	else {
+	    $result = $self->_normalDisambig ($lower, $targetIdx, $upper,
+					       \@senses, \@context);
 	}
+	push @results, $result;
 
-	# now find the best sense
-	my $best_tscore = -1;
-	foreach my $i (0..$#target_scores) {
-	    my $tscore = $target_scores[$i];
-	    next unless defined $tscore;
-
-	    if (ref $trace{$self} and $trace{$self}->{level} & 4) {
-		$trace{$self}->{string} .= "    $senses[$targetIdx][$i]: $tscore\n";
-	    }
-
-	    # ignore scores less than the threshold
-	    next unless $tscore >= $contextScore{$self};
-
-	    if ($tscore > $best_tscore) {
-		$results[$targetIdx] = $senses[$targetIdx][$i];
-		$best_tscore = $tscore;
-	    }
-	}
-
-	if ($best_tscore < 0) {
-	    $results[$targetIdx] = $context[$targetIdx];
-	}
-
-	if (ref $trace{$self} and $trace{$self}->{level} & 2) {
-	    $trace{$self}->{string} .= "  Winning score: $best_tscore\n";
-	}
-
-	if ($trace{$self}->{level} & 8) {
-	    foreach my $str (@traces) {
-		$trace{$self}->{string} .= "$str\n";
-	    }
-	    @traces = ();
-	}
     }
 
     return @results;
@@ -637,6 +616,224 @@ sub doSense1
     return @disambiguated;
 }
 
+sub _forcedPosDisambig
+{
+    my $self = shift;
+    my $lower = shift;
+    my $targetIdx = shift;
+    my $upper = shift;
+    my $senses_ref = shift;
+    my $context_ref = shift;
+    my $measure = $simMeasure{$self};
+    my $result;
+    my @traces;
+    my @target_scores;
+
+
+    # for each sense of the target word ...
+    for my $i (0..$#{$senses_ref->[$targetIdx]}) {
+	unless (ref $senses_ref->[$targetIdx]
+		and  defined $senses_ref->[$targetIdx][$i]) {
+	    $target_scores[$i] = -1;
+	    next;
+	}
+	my @tempScores;
+
+
+	my $target_pos = getPos ($senses_ref->[$targetIdx][$i]);
+
+	# for each (context) word in the window around the target word
+	for my $contextIdx ($lower..$upper) {
+	    next if $contextIdx == $targetIdx;
+	    next unless ref $senses_ref->[$contextIdx];
+
+	    my @goodsenses;
+	    # * check if senses for context word work with target word *
+	    if (needCoercePos ($target_pos, $senses_ref->[$contextIdx])) {
+		@goodsenses = $self->coercePos ($context_ref->[$contextIdx],
+						$target_pos);
+	    }
+	    else {
+		@goodsenses = @{$senses_ref->[$contextIdx]};
+	    }
+
+	    # for each sense of the context word in the window
+	    for my $k (0..$#{$senses_ref->[$i]}) {
+		unless (defined $senses_ref->[$contextIdx][$k]) {
+		    $tempScores[$k] = -1;
+		    next;
+		}
+		    
+		$tempScores[$k] =
+		    $measure->getRelatedness ($senses_ref->[$targetIdx][$i],
+					      $senses_ref->[$contextIdx][$k]);
+		    
+		if ($trace{$self}->{level} & 8) {
+		    push @traces, $measure->getTraceString ();
+		}
+		# clear errors in Similarity object
+		$measure->getError () unless defined $tempScores[$k];
+	    }
+	    my $best = -2;
+	    foreach my $temp (@tempScores) {
+		next unless defined $temp;
+		$best = $temp if $temp > $best;
+	    }
+
+	    if ($best > $pairScore{$self}) {
+		$target_scores[$i] += $best;
+	    }
+	}
+    }
+
+    # find the best score for this sense of the target word
+
+    # first, do a bit of tracing
+    if (ref $trace{$self} and ($trace{$self}->{level} & 4)) {
+	$trace{$self}->{string} .= "  Scores for $context_ref->[$targetIdx]\n";
+    }
+
+    # now find the best sense
+    my $best_tscore = -1;
+    foreach my $i (0..$#target_scores) {
+	my $tscore = $target_scores[$i];
+	next unless defined $tscore;
+	
+	    if (ref $trace{$self} and $trace{$self}->{level} & 4) {
+		$trace{$self}->{string} .= "    $senses_ref->[$targetIdx][$i]: $tscore\n";
+	    }
+	
+	# ignore scores less than the threshold
+	next unless $tscore >= $contextScore{$self};
+	
+	if ($tscore > $best_tscore) {
+	    $result = $senses_ref->[$targetIdx][$i];
+	    $best_tscore = $tscore;
+	}
+    }
+
+    if ($best_tscore < 0) {
+	$result = $context_ref->[$targetIdx];
+    }
+    
+    if (ref $trace{$self} and $trace{$self}->{level} & 2) {
+	$trace{$self}->{string} .= "  Winning score: $best_tscore\n";
+    }
+
+    if ($trace{$self}->{level} & 8) {
+	foreach my $str (@traces) {
+	    $trace{$self}->{string} .= "$str\n";
+	}
+	@traces = ();
+    }
+
+    return $result;
+
+    croak __PACKAGE__, "::_forcedPosDisambig(): Not implemented";
+}
+
+sub _normalDisambig
+{
+    my $self = shift;
+    my $lower = shift;
+    my $targetIdx = shift;
+    my $upper = shift;
+    my $senses_ref = shift;
+    my $context_ref = shift;
+    my $measure = $simMeasure{$self};
+    my $result;
+
+    my @traces;
+    my @target_scores;
+
+    # for each sense of the target word ...
+    for my $i (0..$#{$senses_ref->[$targetIdx]}) {
+	unless (ref $senses_ref->[$targetIdx]
+		and  defined $senses_ref->[$targetIdx][$i]) {
+	    $target_scores[$i] = -1;
+	    next;
+	}
+	my @tempScores;
+	    
+
+	# for each (context) word in the window around the target word
+	for my $contextIdx ($lower..$upper) {
+	    next if $contextIdx == $targetIdx;
+	    next unless ref $senses_ref->[$i];
+
+	    # for each sense of the context word in the window
+	    for my $k (0..$#{$senses_ref->[$i]}) {
+		unless (defined $senses_ref->[$contextIdx][$k]) {
+		    $tempScores[$k] = -1;
+		    next;
+		}
+		    
+		$tempScores[$k] =
+		    $measure->getRelatedness ($senses_ref->[$targetIdx][$i],
+					      $senses_ref->[$contextIdx][$k]);
+		    
+		if ($trace{$self}->{level} & 8) {
+		    push @traces, $measure->getTraceString ();
+		}
+		# clear errors in Similarity object
+		$measure->getError () unless defined $tempScores[$k];
+	    }
+	    my $best = -2;
+	    foreach my $temp (@tempScores) {
+		next unless defined $temp;
+		$best = $temp if $temp > $best;
+	    }
+
+	    if ($best > $pairScore{$self}) {
+		$target_scores[$i] += $best;
+	    }
+	}
+    }
+
+    # find the best score for this sense of the target word
+
+    # first, do a bit of tracing
+    if (ref $trace{$self} and ($trace{$self}->{level} & 4)) {
+	$trace{$self}->{string} .= "  Scores for $context_ref->[$targetIdx]\n";
+    }
+
+    # now find the best sense
+    my $best_tscore = -1;
+    foreach my $i (0..$#target_scores) {
+	my $tscore = $target_scores[$i];
+	next unless defined $tscore;
+	
+	    if (ref $trace{$self} and $trace{$self}->{level} & 4) {
+		$trace{$self}->{string} .= "    $senses_ref->[$targetIdx][$i]: $tscore\n";
+	    }
+	
+	# ignore scores less than the threshold
+	next unless $tscore >= $contextScore{$self};
+	
+	if ($tscore > $best_tscore) {
+	    $result = $senses_ref->[$targetIdx][$i];
+	    $best_tscore = $tscore;
+	}
+    }
+
+    if ($best_tscore < 0) {
+	$result = $context_ref->[$targetIdx];
+    }
+    
+    if (ref $trace{$self} and $trace{$self}->{level} & 2) {
+	$trace{$self}->{string} .= "  Winning score: $best_tscore\n";
+    }
+
+    if ($trace{$self}->{level} & 8) {
+	foreach my $str (@traces) {
+	    $trace{$self}->{string} .= "$str\n";
+	}
+	@traces = ();
+    }
+
+    return $result;
+}
+
 sub compounds : lvalue
 {
     my $self = shift;
@@ -662,59 +859,27 @@ sub isStop
     return 0;
 }
 
+# checks to see if the POS of at least one word#pos#sense string in $aref 
+# is $pos
+sub needCoercePos
+{
+    my $pos = shift;
 
+    # Only coerce if target POS is noun or verb.
+    # The measures that take advantage of POS coercion only work with
+    # nouns and verbs.
+    unless ($pos eq 'n' or $pos eq 'v') {
+	return 0;
+    }
 
-# Penn tagset
-my %wnTag = (
-    JJ => 'a',
-    JJR => 'a',
-    JJS => 'a',
-    CD => 'a',
-    RB => 'r',
-    RBR => 'r',
-    RBS => 'r',
-    RP => 'r',
-    WRB => CLOSED,
-    CC => CLOSED,
-    IN => CLOSED,
-    DT => CLOSED,
-    PDT => CLOSED,
-    CC => CLOSED,
-    'PRP$' => CLOSED,
-    PRP => CLOSED,
-    WDT => CLOSED,
-    'WP$' => CLOSED,
-    NN => 'n',
-    NNS => 'n',
-    NNP => 'n',
-    NNPS => 'n',
-    PRP => CLOSED,
-    WP => CLOSED,
-    EX => CLOSED,
-    VBP => 'v',
-    VB => 'v',
-    VBD => 'v',
-    VBG => 'v',
-    VBN => 'v',
-    VBZ => 'v',
-    VBP => 'v',
-    MD => 'v',
-    TO => CLOSED,
-    POS => undef,
-    UH => CLOSED,
-    '.' => undef,
-    ':' => undef,
-    ',' => undef,
-    _ => undef,
-    '$' => undef,
-    '(' => undef,
-    ')' => undef,
-    '"' => undef,
-    FW => NOINFO,
-    SYM => undef,
-    LS => undef,
-    );
-
+    my $aref = shift;
+    foreach my $wps (@$aref) {
+	if ($pos eq getPos ($wps)) {
+	    return 0;
+	}
+    }
+    return 1;
+}
 
 sub convertTag
 {
@@ -788,13 +953,101 @@ sub convertContraction
 
 }
 
+# noun to non-noun ptr symbols, with frequencies
+# -u 329 (dmnu)  - cf. domn (all domains)
+# -r 80  (dmnr)
+# = 648  (attr)
+# -c 2372 (dmnc)
+# + 21390 (deri) lexical
+
+# verb to non-verb ptr symbols, with frequencies
+# ;u 16   (dmtu) - cf. domt (all domains)
+# ;c 1213 (dmtc)
+# ;r 2    (dmtr)
+# + 21095 (deri) lexical
+
+# adj to non-adj
+# \ 4672   (pert) pertains to noun ; lexical
+# ;u 233  
+# ;c 1125
+# = 648    (attr)
+# < 124    (part) particple of verb ; lexical
+# ;r 76
+
+# adv to non-adv
+# \ 3208    (derived from adj)
+# ;u 74
+# ;c 37
+# ;r 2
+
 sub coercePos
 {
     my $self = shift;
     my $word = shift;
     my $pos = shift;
     my $wn = $wordnet{$self};
+
+    # remove pos tag, if present
+    $word =~ s/\#.*//;
+
     my @forms = $wn->validForms ($word);
+
+    if (0 >= scalar @forms) {
+	return undef;
+    }
+
+    # pre-compile the pattern
+    my $cpattern = qr/\#$pos/;
+
+    foreach my $form (@forms) {
+	if ($form =~ /$cpattern/) {
+	    return $form;
+	}
+    }
+
+    # didn't find a surface match, look along cross-pos relations
+
+    my @goodforms;
+    foreach my $form (@forms) {
+	my @cands = $wn->queryWord ($form, "deri");
+	foreach my $candidate (@cands) {
+	    if ($candidate =~ /$cpattern/) {
+		push @goodforms, $candidate;
+	    }
+	}
+    }
+
+    return @goodforms;
+}
+
+# get all senses for each context word
+sub _getSenses
+{
+    my $self = shift;
+    my @context = @_;
+    my @senses;
+
+    for my $i (0..$#context) {
+	# first get all forms for each POS
+	if ($context[$i] =~ /\#o/) {
+	    $senses[$i] = undef;
+	}
+	else {
+	    my @forms = $self->wordnet->validForms ($context[$i]);
+
+	    if (scalar @forms == 0) {
+		$senses[$i] = undef;
+	    }
+	    else {
+		# now get all the senses for each form
+		foreach my $form (@forms) {
+		    my @temps = $self->wordnet->querySense ($form);
+		    push @{$senses[$i]}, @temps;
+		}
+	    }
+	}
+    }
+    return @senses;
 }
 
 sub _loadStoplist
@@ -877,7 +1130,17 @@ sub _compoundify
     return @rvalues;
 }
 
+sub getPos
+{
+    my $string = shift;
+    my $p = index $string, "#";
+    return undef if $p < 0;
+    my $pos = substr $string, $p+1, 1;
+    return $pos;
+}
+
 1;
+
 __END__
 
 =pod
