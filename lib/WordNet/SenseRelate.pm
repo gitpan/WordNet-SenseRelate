@@ -1,6 +1,6 @@
 package WordNet::SenseRelate;
 
-# $Id: SenseRelate.pm,v 1.17 2005/01/17 16:07:37 jmichelizzi Exp $
+# $Id: SenseRelate.pm,v 1.19 2005/03/11 22:15:09 jmichelizzi Exp $
 
 =head1 NAME
 
@@ -50,7 +50,7 @@ use Carp;
 
 our @ISA = ();
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 my %wordnet;
 my %compounds;
@@ -331,6 +331,11 @@ as a list.  If a word cannot be disambiguated, then it is returned "as is".
 A word cannot be disambiguated if it is not in WordNet or if no value
 exceeds the specified threshold.
 
+The context parameter specifies the
+words to be disambiguated.  It treats the value as one sentence.  To
+disambiguate a document with multiple sentences, make one call to
+disambiguate() for each sentence.
+
 Parameters:
 
   window => INTEGER    : the window size to use
@@ -381,6 +386,9 @@ sub disambiguate
     my @results;
     if ($scheme eq 'sense1') {
 	@results = $self->doSense1 (@newcontext);
+    }
+    elsif ($scheme eq 'random') {
+	@results = $self->doRandom (@newcontext);
     }
     elsif ($scheme eq 'normal') {
 	@results = $self->doNormal ($pairScore, $contextScore, $window, @newcontext);
@@ -606,6 +614,45 @@ sub doSense1
 	    my $i = int (rand (scalar @best_senses));
 
 	    push @disambiguated, $best_senses[$i]->[0];
+	}
+	else {
+	    push @disambiguated, $word;
+	}
+
+
+    }
+    return @disambiguated;
+}
+
+# does random guessing.  This could be considered a baseline approach
+# of sorts.  Also try running normal disambiguation using the
+# WordNet::Similarity::random measure
+sub doRandom
+{
+    my $self = shift;
+    my @words = @_;
+    my $wn = $wordnet{$self};
+
+    my $datapath = $wn->dataPath;
+
+    my @disambiguated;
+
+    foreach my $word (@words) {
+	my @forms = $wn->validForms ($word);
+
+	my @senses;
+
+	foreach my $form (@forms) {
+	    my @t = $wn->querySense ($form);
+	    if (scalar @t > 0) {
+		push @senses, @t;
+	    }
+	}
+
+
+	if (scalar @senses) {
+	    my $i = int (rand (scalar @senses));
+	    push @disambiguated, $senses[$i];
 	}
 	else {
 	    push @disambiguated, $word;
@@ -1182,7 +1229,7 @@ Ted Pedersen, E<lt>tpederse at d.umn.eduE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2004 by Jason Michelizzi and Ted Pedersen
+Copyright (C) 2004-2005 by Jason Michelizzi and Ted Pedersen
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

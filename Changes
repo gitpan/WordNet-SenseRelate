@@ -1,5 +1,15 @@
 Revision history for Perl extension WordNet::SenseRelate.
 
+0.03  Fri Mar 11 15:25:18 2005
+	- added scripts for converting semcor files and
+	  formatting the output for Senseval
+
+	- added another test script
+
+	- changed the input format(s) to wsd.pl
+
+	- expanded documentation
+
 0.02  Mon Jan 17 10:01:00 2005
         - added part of speech coercion option
 

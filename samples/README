@@ -1,0 +1,24 @@
+The samples directory contains several files that may be helpful.
+
+Contents:
+
+short-raw.txt
+short-tagged.txt
+short.txt.txt
+shorter-tagged.txt
+shorter.txt
+     
+     These files are example files that can be used to test the
+     software.  The files that contain "-tagged" have been part
+     of speech tagged.  The files that contain "-raw" are raw
+     text files that have not had punctuation removed, etc.  The
+     remaining files have one sentence per line and all unwanted
+     punctuation has been removed.
+
+semcor-sample.txt
+
+     A short extract from one Semcor 2.0 file that can be used as
+     input to semcor-reformat.pl.  Semcor can be downloaded from
+     http://www.cs.unt.edu/~rada/downloads.html#semcor
+
+

@@ -1,6 +1,6 @@
 #!/usr/local/bin/perl
 
-# $Id: wsd.pl,v 1.16 2005/01/17 16:05:58 jmichelizzi Exp $
+# $Id: wsd.pl,v 1.19 2005/03/09 17:29:50 jmichelizzi Exp $
 
 use strict;
 use warnings;
@@ -23,28 +23,28 @@ our $trace;
 our $help;
 our $version;
 our $scheme = 'normal';
-our $boundary;
 our $outfile;
 our $forcepos;
 
+our $format; # raw|tagged|parsed
+
 my $ok = GetOptions ('type|measure=s' => \$measure,
-		   'config=s' => \$mconfig,
-		   'context=s' => \$contextf,
-#		   'tagged=i' => \$tagged,
-		   'compounds=s' => \$compfile,
-		   'stoplist=s' => \$stoplist,
-		   'window=i' => \$window,
-		   'pairScore=f' => \$pairScore,
-		   'contextScore=f' => \$contextScore,
-		   'scheme=s' => \$scheme,
-		   'boundary!' => \$boundary,
-		   forcepos => \$forcepos,
-		   silent => \$silent,
-		   'trace=i' => \$trace,
-		   help => \$help,
-		   version => \$version,
-		   'outfile=s' => \$outfile,
-		   );
+		     'config=s' => \$mconfig,
+		     'context=s' => \$contextf,
+		     'compounds=s' => \$compfile,
+		     'stoplist=s' => \$stoplist,
+		     'window=i' => \$window,
+		     'pairScore=f' => \$pairScore,
+		     'contextScore=f' => \$contextScore,
+		     'scheme=s' => \$scheme,
+		     forcepos => \$forcepos,
+		     silent => \$silent,
+		     'trace=i' => \$trace,
+		     help => \$help,
+		     version => \$version,
+		     'outfile=s' => \$outfile,
+		     'format=s' => \$format,
+		     );
 $ok or exit 1;
 
 if ($help) {
@@ -53,8 +53,8 @@ if ($help) {
 }
 
 if ($version) {
-    print "wsd.pl version 0.01\n";
-    print "Copyright (C) 2004, Jason Michelizzi and Ted Pedersen\n\n";
+    print "wsd.pl version 0.03\n";
+    print "Copyright (C) 2004-2005, Jason Michelizzi and Ted Pedersen\n\n";
     print "This is free software, and you are welcome to redistribute it\n";
     print "under certain conditions.  This software comes with ABSOLUTELY\n";
     print "NO WARRANTY.  See the file COPYING or run 'perldoc perlgpl' for\n";
@@ -68,16 +68,19 @@ unless (defined $contextf) {
     exit 1;
 }
 
-
-my $istagged = isTagged ($contextf);
-
-unless (defined $boundary) {
-    $boundary = !$istagged;
+unless (($format eq 'raw') or ($format eq 'parsed') or ($format eq 'tagged')) {
+    print STDERR "The format argument is required.\n";
+    showUsage ();
+    exit 1;
 }
+
+#my $istagged = isTagged ($contextf);
+my $istagged = $format eq 'tagged' ? 1 : 0;
 
 unless ($silent) {
     print "Current configuration:\n";
     print "    context file  : $contextf\n";
+    print "    format        : $format\n";
     print "    scheme        : $scheme\n";
     print "    tagged text   : ", ($istagged ? "yes" : "no"), "\n";
     print "    measure       : $measure\n";
@@ -88,7 +91,7 @@ unless ($silent) {
     print "    compound file : ", ($compfile ? $compfile : '(none)'), "\n";
     print "    stoplist      : ", ($stoplist ? $stoplist : '(none)') , "\n";
     print "    trace         : ", ($trace ? $trace : "no"), "\n";
-    print "    boundary      : ", ($boundary ? "detect" : "assume"), "\n";
+#    print "    boundary      : ", ($boundary ? "detect" : "assume"), "\n";
     print "    forcepos      : ", ($forcepos ? "yes" : "no"), "\n";
 }
 
@@ -116,7 +119,7 @@ my $sr = WordNet::SenseRelate->new (%options);
 open (FH, '<', $contextf) or die "Cannot open '$contextf': $!";
 
 my @sentences;
-if ($boundary) {
+if ($format eq 'raw') {
     local $/ = undef;
     my $input = <FH>;
     $input =~ tr/\n/ /;
@@ -124,6 +127,9 @@ if ($boundary) {
 
     @sentences = splitSentences ($input);
     undef $input;
+    foreach my $sent (@sentences) {
+	$sent = cleanLine ($sent);
+    }
 }
 else {
     @sentences = <FH>;
@@ -176,6 +182,13 @@ sub isTagged
     return 0;
 }
 
+sub cleanLine
+{
+    my $line = shift;
+    # remove commas, colons, semicolons
+    $line =~ s/[,:;]+/ /g;
+    return $line;
+}
 
 # The sentence boundary algorithm used here is based on one described
 # by C. Manning and H. Schutze. 2000. Foundations of Statistical Natural
@@ -189,7 +202,7 @@ sub splitSentences
     my @known_abbr = qw/prof Prof ph d Ph D dr Dr mr Mr mrs Mrs ms Ms vs/;
 
     # abbreviations that can occur at the end of sentence
-    my @sometimes_abbr = qw/etc jr Jr/;
+    my @sometimes_abbr = qw/etc jr Jr sr Sr/;
 
 
     my $pbm = '<pbound/>'; # putative boundary marker
@@ -221,15 +234,16 @@ sub splitSentences
 sub showUsage
 {
     my $long = shift;
-    print "Usage: wsd.pl --context FILE [--scheme SCHEME] [--type MEASURE]\n";
-    print "              [--config FILE] [--compounds FILE] [--stoplist FILE]\n";
-    print "              [--window INT] [--contextScore NUM] [--pairScore NUM] [--boundary]\n";
-    print "              [--outfile FILE] [--trace INT] [--silent]\n";
+    print "Usage: wsd.pl --context FILE --format FORMAT [--scheme SCHEME]\n";
+    print "              [--type MEASURE] [--config FILE] [--compounds FILE]\n";
+    print "              [--stoplist file] [--window INT] [--contextScore NUM]\n";
+    print "              [--pairScore NUM] [--outfile FILE] [--trace INT] [--silent]\n";
     print "              | {--help | --version}\n";
 
     if ($long) {
 	print "Options:\n";
 	print "\t--context FILE       a file containing the text to be disambiguated\n";
+	print "\t--format FORMAT      one of 'raw', 'parsed', or 'tagged'\n";
 	print "\t--scheme SCHEME      disambiguation scheme to use.  Valid values\n";
 	print "\t                     are 'normal' and 'sense1'.\n";
 	print "\t--type MEASURE       the relatedness measure to use\n";
@@ -242,7 +256,6 @@ sub showUsage
 	print "\t--pairScore NUM      the minimum pairwise threshold used in the\n";
 	print "\t                     algorithm\n";
 	print "\t--outfile FILE       the name of an output file\n";
-	print "\t--boundary           automatically detect sentence boundaries\n";
 	print "\t--trace INT          turn tracing on; higher value results in more\n";
 	print "\t                     traces\n";
 	print "\t--silent             run silently; shows only final output\n";
@@ -260,7 +273,7 @@ wsd.pl - disambiguate words
 
 =head1 SYNOPSIS
 
-wsd.pl --context FILE [--scheme SCHEME] [--type MEASURE] [--config FILE] [--compounds FILE] [--stoplist FILE] [--window INT] [--contextScore NUM] [--pairScore NUM] [--outfile FILE] [--boundary] [--trace INT] [--silent] [--forcepos] | --help | --version
+wsd.pl --context FILE --format FORMAT [--scheme SCHEME] [--type MEASURE] [--config FILE] [--compounds FILE] [--stoplist FILE] [--window INT] [--contextScore NUM] [--pairScore NUM] [--outfile FILE] [--trace INT] [--silent] [--forcepos] | --help | --version
 
 =head1 DESCRIPTION
 
@@ -278,6 +291,30 @@ optional.
 
 The input file containing the text to be disambiguated.  This
 "option" is required.
+
+=item --format=B<FORMAT>
+
+The format of the input file.  Valid values are
+
+=over
+
+=item raw
+
+The input is raw text.  Sentence boundary detection will be performed, and
+all punctuation will be removed.
+
+=item parsed
+
+The input is untagged text with one sentence per line and all unwanted
+punctuation has already been removed.  Note: many WordNet terms contain
+punctuation, such as I<U.S.>, I<Alzheimer's>, I<S/N>, etc.
+
+=item tagged 
+
+Similar to parsed, but the input text has been part-of-speech tagged with
+Penn Treebank tags (perhaps using the Brill tagger).
+
+=back
 
 =item --scheme=B<SCHEME>
 
@@ -329,15 +366,6 @@ The default is zero.
 =item --outfile=B<FILE>
 
 The name of a file to which output should be sent.
-
-=item --boundary
-
-Automatically detect sentence boundaries.  By default, if the input text is
-POS tagged, then it is assumed that the input file has once sentence per
-line.  If the text is not POS tagged, then sentence boundary detection
-is done.  This option can be used to override this default behavior.  To
-force sentence boundary detection, use this option.  To prevent sentence
-boundary detection, negate the option (I<--no-boundary>).
 
 =item --trace=B<INT>
 
@@ -391,7 +419,7 @@ None known.
 
 =head1 COPYRIGHT
 
-Copyright (C) 2004 Jason Michelizzi and Ted Pedersen
+Copyright (C) 2004-2005 Jason Michelizzi and Ted Pedersen
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
